@@ -1,7 +1,8 @@
 import { fetchCandles, fetchMarketCtx, fetchPriceAt, LiveFeed, INTERVAL_SEC } from './data.js';
 import { sma, ema, bollinger, rsi, macd, vwap, heikinAshi } from './indicators.js';
 import { forecast } from './forecast.js';
-import { calcPosition, pnlAt, realized, load, save, uid, toCsv } from './positions.js';
+import { calcPosition, pnlAt, realized, capitalOf, finalizeFromFills, load, save, uid, toCsv } from './positions.js';
+import * as acct from './account.js';
 
 const LC = window.LightweightCharts;
 const $ = (s, r = document) => r.querySelector(s);
@@ -48,7 +49,7 @@ const persist = () => { try { localStorage.setItem(SKEY, JSON.stringify(settings
 const state = {
   coin: 'BTC', candles: [], ctx: null, maxLev: 40, lastPrice: null, dayHigh: null, dayLow: null,
   positions: load(), tab: 'open', formType: 'spot', marginMode: 'isolated', editingId: null,
-  picking: false, drawing: false, fc: null, warned: new Set(), loadSeq: 0,
+  picking: false, drawing: false, fc: null, warned: new Set(), loadSeq: 0, user: null, resolving: false,
 };
 
 /* ------------------------------------------------------------------ */
@@ -264,7 +265,7 @@ function snapTime(sec) {
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (c[mid].time <= sec) lo = mid; else hi = mid - 1; }
   return c[lo].time;
 }
-const posLabel = (p) => (p.type === 'spot' ? `Buy ${fmtBtc(p.size)}` : `${p.type === 'long' ? 'L' : 'S'} ${p.leverage}x ${fmtBtc(p.size)}`);
+const posLabel = (p) => (p.type === 'spot' ? `Buy ${fmtBtc(p.size)}` : `${p.type === 'long' ? 'L' : 'S'} ${p.leverage}x ${fmtUsd(+p.size * +p.entry, 0)}`);
 
 function renderChartPositions() {
   if (!priceSeries) return;
@@ -276,7 +277,12 @@ function renderChartPositions() {
 
   if (settings.showPositions) {
     for (const p of state.positions) {
+      if (p.needsPrice) continue;
       const col = p.type === 'short' ? down : p.type === 'long' ? up : acc;
+      for (const f of (p.fills || []).slice(1)) {
+        const tf = snapTime(f.time / 1000);
+        if (tf != null) markers.push({ time: tf, position: p.type === 'short' ? 'aboveBar' : 'belowBar', color: col + 'aa', shape: p.type === 'short' ? 'arrowDown' : 'arrowUp', size: 0.6 });
+      }
       const t = snapTime(p.time / 1000);
       if (t != null) {
         markers.push({
@@ -293,7 +299,7 @@ function renderChartPositions() {
       if (p.tp) add({ price: +p.tp, color: up, lineStyle: LC.LineStyle.Dotted, title: 'TP' });
       if (p.sl) add({ price: +p.sl, color: down, lineStyle: LC.LineStyle.Dotted, title: 'SL' });
     }
-    const spot = state.positions.filter((p) => p.type === 'spot' && p.status !== 'closed');
+    const spot = state.positions.filter((p) => p.type === 'spot' && p.status !== 'closed' && !p.needsPrice);
     if (spot.length > 1) {
       const sz = spot.reduce((a, p) => a + +p.size, 0);
       const avg = spot.reduce((a, p) => a + p.entry * p.size, 0) / sz;
@@ -302,7 +308,7 @@ function renderChartPositions() {
   }
   if (settings.showLiq) {
     for (const p of state.positions) {
-      if (p.status === 'closed' || p.type === 'spot') continue;
+      if (p.status === 'closed' || p.type === 'spot' || p.needsPrice) continue;
       const k = calcPosition(p, state.maxLev);
       if (k.liq) add({ price: k.liq, color: '#ff4d6d', lineWidth: 2, lineStyle: LC.LineStyle.Dashed, title: `LIQ ${p.type === 'long' ? 'L' : 'S'} ${p.leverage}x` });
     }
@@ -448,7 +454,7 @@ function checkAlerts(px) {
     return !hit;
   });
   for (const p of state.positions) {
-    if (p.status === 'closed' || p.type === 'spot' || state.warned.has(p.id)) continue;
+    if (p.status === 'closed' || p.type === 'spot' || p.needsPrice || state.warned.has(p.id)) continue;
     const k = calcPosition(p, state.maxLev);
     if (k.liq && Math.abs(px - k.liq) / px < 0.05) {
       state.warned.add(p.id);
@@ -579,8 +585,10 @@ function markPx() {
 function renderPortfolio() {
   const px = markPx();
   const scenario = px !== state.lastPrice;
-  const open = state.positions.filter((p) => p.status !== 'closed').sort((a, b) => b.time - a.time);
+  const open = state.positions.filter((p) => p.status !== 'closed' && !p.needsPrice).sort((a, b) => b.time - a.time);
+  const pending = state.positions.filter((p) => p.needsPrice).length;
   const closed = state.positions.filter((p) => p.status === 'closed').sort((a, b) => b.exitTime - a.exitTime);
+  const fillsNote = (p) => (p.fills?.length > 1 ? ` · ${p.fills.length} buys` : '');
   $('#cntOpen').textContent = open.length;
   $('#cntClosed').textContent = closed.length;
 
@@ -607,10 +615,17 @@ function renderPortfolio() {
 
   // Table
   const thead = $('#posTable thead'), tbody = $('#posTable tbody');
+  const sb = $('#syncBanner');
+  sb.classList.toggle('hidden', !pending);
+  if (pending) sb.innerHTML = `⏳ Looking up historical BTC prices for ${pending} imported trade${pending === 1 ? '' : 's'}…`;
+  const isStats = state.tab === 'stats';
+  $('#statsPane').classList.toggle('hidden', !isStats);
+  $('#tableWrap').classList.toggle('hidden', isStats);
+  if (isStats) { renderStats(closed); return; }
   const list = state.tab === 'open' ? open : closed;
   $('#emptyState').classList.toggle('show', !list.length);
   $('#posTable').classList.toggle('hidden', !list.length);
-  const posCell = (p) => `<span class="tag ${p.type}">${p.type === 'spot' ? 'Spot' : p.type}${p.type !== 'spot' ? ' ' + p.leverage + 'x' : ''}</span><span class="venue">${esc(p.venue)}${p.type !== 'spot' ? ' · ' + (p.marginMode === 'cross' ? 'cross' : 'isolated') : ''}</span>${p.notes ? `<span class="sub" title="${esc(p.notes)}">${esc(p.notes.slice(0, 32))}${p.notes.length > 32 ? '…' : ''}</span>` : ''}`;
+  const posCell = (p) => `<span class="tag ${p.type}">${p.type === 'spot' ? 'Spot' : p.type}${p.type !== 'spot' ? ' ' + p.leverage + 'x' : ''}</span><span class="venue">${esc(p.venue)}${p.type !== 'spot' ? ' · ' + (p.marginMode === 'cross' ? 'cross' : 'isolated') : ''}${fillsNote(p)}</span>${p.notes ? `<span class="sub" title="${esc(p.notes)}">${esc(p.notes.slice(0, 32))}${p.notes.length > 32 ? '…' : ''}</span>` : ''}`;
 
   if (state.tab === 'open') {
     const scenarioHdr = scenario ? ` @ ${fmtUsd(px, 0)}` : '';
@@ -637,12 +652,15 @@ function renderPortfolio() {
   } else {
     thead.innerHTML = '<tr><th>Position</th><th>Opened</th><th>Closed</th><th class="num">Entry</th><th class="num">Exit</th><th class="num">Size</th><th class="num">Realized PnL</th><th></th></tr>';
     tbody.innerHTML = closed.map((p) => {
-      const r = pnlAt(p, +p.exit, state.maxLev);
+      const pnl = realized(p, state.maxLev);
+      const cap = capitalOf(p, state.maxLev);
+      const wait = p.needsPrice ? '<span class="muted">…</span>' : null;
+      const notional = p.needsPrice ? null : calcPosition(p, state.maxLev).notional;
       return `<tr data-id="${p.id}">
         <td>${posCell(p)}</td><td>${fmtDate(p.time)}</td><td>${fmtDate(p.exitTime)}</td>
-        <td class="num">${fmtUsd(+p.entry, 1)}</td><td class="num">${fmtUsd(+p.exit, 1)}</td>
-        <td class="num">${fmtBtc(p.size)} ₿<span class="sub">${fmtUsd(r.notional, 0)}</span></td>
-        <td class="num ${cls(r.pnl)}">${fmtSigned(r.pnl)}<span class="sub ${cls(r.pnl)}">${fmtPct(r.roe)}</span></td>
+        <td class="num">${wait || fmtUsd(+p.entry, 1)}</td><td class="num">${wait || fmtUsd(+p.exit, 1)}</td>
+        <td class="num">${wait || fmtBtc(p.size) + ' ₿'}<span class="sub">${notional != null ? fmtUsd(notional, 0) : ''}${cap ? ' · in ' + fmtUsd(cap, 2) : ''}</span></td>
+        <td class="num ${cls(pnl)}">${fmtSigned(pnl)}<span class="sub ${cls(pnl)}">${cap ? fmtPct(pnl / cap) : ''}</span></td>
         <td><div class="row-actions"><button data-act="focus" title="Show on chart">◎</button><button data-act="reopen">Reopen</button><button data-act="del" class="danger" title="Delete">✕</button></div></td>
       </tr>`;
     }).join('');
@@ -674,8 +692,18 @@ function focusTime(sec) {
   $('#chartCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+let pushTimer = null;
+function savePositions() {
+  if (!state.user) { save(state.positions); return; }
+  clearTimeout(pushTimer);
+  setSync('saving');
+  pushTimer = setTimeout(async () => {
+    try { await acct.push(state.positions); setSync('saved'); }
+    catch (e) { setSync('error'); toast(`Couldn't save to your account: ${esc(e.message)} Retrying…`, 'err'); pushTimer = setTimeout(savePositions, 8000); }
+  }, 700);
+}
 function commit(msg) {
-  save(state.positions);
+  savePositions();
   renderPortfolio();
   renderChartPositions();
   if (msg) toast(msg, 'ok');
@@ -789,7 +817,7 @@ function editPosition(p) {
   setMargin(p.marginMode || 'isolated');
   form.venue.value = p.venue;
   form.time.value = toLocalInput(p.time);
-  form.entry.value = p.entry;
+  form.entry.value = Number.isFinite(+p.entry) ? +(+p.entry).toFixed(1) : '';
   form.amount.value = p.size;
   form.amountUnit.value = 'coin';
   form.leverage.value = p.leverage || 1;
@@ -813,7 +841,11 @@ form.addEventListener('submit', (e) => {
   }
   if (state.editingId) {
     const i = state.positions.findIndex((x) => x.id === state.editingId);
-    state.positions[i] = { ...state.positions[i], ...p };
+    const old = state.positions[i];
+    const untouched = old.fills?.length && Math.abs(p.entry - old.entry) < 0.05 && Math.abs(p.size - old.size) / old.size < 1e-6;
+    state.positions[i] = { ...old, ...p };
+    if (untouched) finalizeFromFills(state.positions[i]); // leverage change → recompute size from the margin that went in
+    else delete state.positions[i].fills;
     commit('Position updated');
   } else {
     state.positions.push({ id: uid(), coin: state.coin, status: 'open', created: Date.now(), ...p });
@@ -923,7 +955,7 @@ $('#themeToggle').addEventListener('click', () => {
 });
 function applyTheme() {
   const o = themeOpts();
-  for (const ch of [main, subs.rsi.chart, subs.macd.chart]) ch.applyOptions(o);
+  for (const ch of [main, subs.rsi.chart, subs.macd.chart, pnlChart]) ch?.applyOptions(o);
   document.querySelector('meta[name="theme-color"]').content = css('--bg');
   buildPriceSeries();
   if (state.candles.length) { priceSeries.setData(seriesData()); renderIndicators(); renderChartPositions(); }
@@ -952,14 +984,220 @@ $('#importFile').addEventListener('change', async (e) => {
     const data = JSON.parse(await file.text());
     const list = Array.isArray(data) ? data : data.positions;
     if (!Array.isArray(list)) throw new Error();
-    const valid = list.filter((p) => p && p.id && ['spot', 'long', 'short'].includes(p.type) && +p.entry > 0 && +p.size > 0 && Number.isFinite(+p.time));
+    const valid = list.filter((p) => p && typeof p.id === 'string' && ['spot', 'long', 'short'].includes(p.type) && Number.isFinite(+p.time)
+      && ((+p.entry > 0 && +p.size > 0) || (p.needsPrice && Array.isArray(p.fills) && p.fills.length && p.fills.every((f) => +f.usd > 0 && Number.isFinite(+f.time)))));
     const ids = new Set(state.positions.map((p) => p.id));
     let added = 0;
     for (const p of valid) if (!ids.has(p.id)) { state.positions.push(p); added++; }
-    commit(`Imported ${added} position${added === 1 ? '' : 's'}`);
+    commit(`Imported ${added} position${added === 1 ? '' : 's'}${valid.length > added ? ` (${valid.length - added} already there)` : ''}`);
+    resolvePending();
   } catch { toast('That file is not a valid positions export.', 'err'); }
   e.target.value = '';
 });
+
+/* ------------------------------------------------------------------ */
+/* Trading stats                                                       */
+/* ------------------------------------------------------------------ */
+let pnlChart = null, pnlSeries = null;
+const sum = (a) => a.reduce((x, y) => x + y, 0);
+const fmtDur = (ms) => {
+  const h = ms / 3600000;
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))}m`;
+  if (h < 48) return `${h.toFixed(1)}h`;
+  return `${(h / 24).toFixed(1)}d`;
+};
+function renderStats(closed) {
+  const trades = [...closed].sort((a, b) => a.exitTime - b.exitTime);
+  const pnls = trades.map((p) => realized(p, state.maxLev));
+  const wins = pnls.filter((x) => x > 0), losses = pnls.filter((x) => x < 0);
+  const total = sum(pnls);
+  const grossW = sum(wins), grossL = -sum(losses);
+  const capClosed = sum(trades.map((p) => capitalOf(p, state.maxLev)));
+  const openPos = state.positions.filter((p) => p.status !== 'closed');
+  const capOpen = sum(openPos.map((p) => capitalOf(p, state.maxLev)));
+  const holds = trades.map((p) => p.exitTime - p.time).filter((x) => x > 0);
+  let streak = 0;
+  for (let i = pnls.length - 1; i >= 0; i--) {
+    const sg = Math.sign(pnls[i]);
+    if (!sg) break;
+    if (!streak || Math.sign(streak) === sg) streak += sg; else break;
+  }
+  const best = pnls.length ? Math.max(...pnls) : NaN, worst = pnls.length ? Math.min(...pnls) : NaN;
+  const decided = wins.length + losses.length;
+  const stat = (label, val, sub = '', c = '') => `<div class="stat"><label>${label}</label><div class="val ${c}">${val}</div><div class="sub">${sub}</div></div>`;
+  $('#statsGrid').innerHTML = [
+    stat('Total realized', fmtSigned(total), capClosed ? `${fmtPct(total / capClosed)} on ${fmtUsd(capClosed, 0)} traded` : '&nbsp;', cls(total)),
+    stat('Win rate', decided ? `${Math.round((wins.length / decided) * 100)}%` : '—', `${wins.length} wins · ${losses.length} losses${pnls.length - decided ? ` · ${pnls.length - decided} even` : ''}`),
+    stat('Closed trades', String(trades.length), `${openPos.length} open now · ${fmtUsd(capOpen, 2)} in`),
+    stat('Profit factor', grossL ? (grossW / grossL).toFixed(2) : wins.length ? '∞' : '—', 'gross wins ÷ gross losses'),
+    stat('Avg win', wins.length ? fmtSigned(grossW / wins.length) : '—', 'per winning trade', 'up'),
+    stat('Avg loss', losses.length ? fmtSigned(-grossL / losses.length) : '—', 'per losing trade', losses.length ? 'down' : ''),
+    stat('Best trade', fmtSigned(best), '', cls(best)),
+    stat('Worst trade', fmtSigned(worst), '', cls(worst)),
+    stat('Avg hold', holds.length ? fmtDur(sum(holds) / holds.length) : '—', 'open → close'),
+    stat('Streak', streak ? `${Math.abs(streak)} ${streak > 0 ? 'win' : 'loss'}${Math.abs(streak) > 1 ? (streak > 0 ? 's' : 'es') : ''}` : '—', 'most recent trades', streak > 0 ? 'up' : streak < 0 ? 'down' : ''),
+  ].join('');
+
+  // cumulative PnL curve
+  if (!pnlChart) {
+    pnlChart = LC.createChart($('#pnlChart'), { ...themeOpts(), autoSize: true, localization, timeScale: { ...themeOpts().timeScale, timeVisible: false } });
+    pnlChart.applyOptions({ rightPriceScale: { minimumWidth: 60 }, layout: { attributionLogo: false } });
+    pnlSeries = pnlChart.addBaselineSeries({
+      baseValue: { type: 'price', price: 0 }, lineWidth: 2,
+      topLineColor: css('--up'), topFillColor1: css('--up') + '55', topFillColor2: css('--up') + '08',
+      bottomLineColor: css('--down'), bottomFillColor1: css('--down') + '08', bottomFillColor2: css('--down') + '55',
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    });
+  }
+  let cum = 0, lastT = 0;
+  const pts = [];
+  trades.forEach((p, i) => {
+    cum += pnls[i];
+    let t = Math.floor(p.exitTime / 1000);
+    if (t <= lastT) t = lastT + 1;
+    lastT = t;
+    pts.push({ time: t, value: +cum.toFixed(2) });
+  });
+  pnlSeries.setData(pts);
+  pnlSeries.setMarkers(trades.map((p, i) => ({ time: pts[i].time, position: 'inBar', color: pnls[i] >= 0 ? css('--up') : css('--down'), shape: 'circle', size: 0.5 })));
+  pnlChart.timeScale().fitContent();
+
+  // by month
+  const months = new Map();
+  trades.forEach((p, i) => {
+    const d = new Date(p.exitTime);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const m = months.get(k) || { n: 0, w: 0, l: 0, pnl: 0, cap: 0, d };
+    m.n++; m.pnl += pnls[i]; m.cap += capitalOf(p, state.maxLev);
+    if (pnls[i] > 0) m.w++; else if (pnls[i] < 0) m.l++;
+    months.set(k, m);
+  });
+  $('#monthBody').innerHTML = [...months.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([, m]) =>
+    `<tr><td>${m.d.toLocaleString(undefined, { month: 'long', year: 'numeric' })}</td><td class="num">${m.n}</td><td class="num">${m.w + m.l ? Math.round((m.w / (m.w + m.l)) * 100) + '%' : '—'}</td><td class="num">${fmtUsd(m.cap, 2)}</td><td class="num ${cls(m.pnl)}">${fmtSigned(m.pnl)}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="muted">No closed trades yet.</td></tr>';
+}
+
+/* Imported trades: fill in the BTC price at each buy */
+async function resolvePending() {
+  if (state.resolving || !state.positions.some((p) => p.needsPrice)) return;
+  state.resolving = true;
+  renderPortfolio();
+  let failed = 0;
+  for (const p of state.positions.filter((x) => x.needsPrice)) {
+    for (const f of p.fills) {
+      if (+f.entry > 0) continue;
+      try { f.entry = (await fetchPriceAt(settings.source, state.coin, f.time)).price; }
+      catch {
+        try { f.entry = (await fetchPriceAt(settings.source === 'hyperliquid' ? 'binance' : 'hyperliquid', state.coin, f.time)).price; } catch { failed++; }
+      }
+    }
+    if (p.fills.every((f) => +f.entry > 0)) finalizeFromFills(p);
+  }
+  state.resolving = false;
+  commit(failed ? null : 'Imported trades are now on the chart');
+  if (failed) toast(`Couldn't find prices for ${failed} buy${failed === 1 ? '' : 's'} — will retry next visit.`, 'err');
+}
+
+/* ------------------------------------------------------------------ */
+/* Accounts                                                            */
+/* ------------------------------------------------------------------ */
+const guestAvatar = $('#accountAvatar').innerHTML;
+const guestNote = $('#storageNote').innerHTML;
+function setSync(s) { state.sync = s; updateAccountUI(); }
+function updateAccountUI() {
+  const u = state.user;
+  $('#accountBtn').classList.toggle('signed-in', !!u);
+  $('#accountLabel').textContent = u ? u.name : 'Sign in';
+  $('#accountAvatar').innerHTML = u ? esc(u.name.trim()[0]?.toUpperCase() || '?') : guestAvatar;
+  const syncTxt = { saving: 'Saving…', saved: 'All changes saved', error: 'Not saved — retrying' }[state.sync] || 'Synced';
+  $('#storageNote').innerHTML = u ? `Saved to your account (${esc(u.email)}) · ${syncTxt}. Available on any device you sign in on.` : guestNote;
+}
+
+let authMode = 'login';
+function setAuthMode(m) {
+  authMode = m;
+  $$('#authSeg button').forEach((b) => b.classList.toggle('active', b.dataset.mode === m));
+  $$('.signup-only').forEach((el) => el.classList.toggle('hidden', m !== 'signup'));
+  $('#authTitle').textContent = m === 'signup' ? 'Create your account' : 'Welcome back';
+  $('#authSub').textContent = m === 'signup' ? 'Free. Your positions are saved and synced across devices.' : 'Log in to see your positions on any device.';
+  $('#authSubmit').textContent = m === 'signup' ? 'Create account' : 'Log in';
+  $('#authForm').password.autocomplete = m === 'signup' ? 'new-password' : 'current-password';
+  $('#authError').classList.add('hidden');
+}
+function openAuth(m = 'login') { setAuthMode(m); $('#authDialog').showModal(); $('#authForm').email.focus(); }
+$$('#authSeg button').forEach((b) => b.addEventListener('click', () => setAuthMode(b.dataset.mode)));
+$('#authCancel').addEventListener('click', () => $('#authDialog').close());
+document.addEventListener('click', (e) => { if (e.target.closest('[data-open-auth]')) { e.preventDefault(); openAuth('signup'); } });
+$('#authForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.currentTarget, err = $('#authError'), btn = $('#authSubmit');
+  const email = f.email.value.trim(), pw = f.password.value;
+  const show = (m) => { err.textContent = m; err.classList.remove('hidden'); };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return show('Enter a valid email address.');
+  if (pw.length < 8) return show('Password must be at least 8 characters.');
+  btn.disabled = true;
+  try {
+    const user = authMode === 'signup' ? await acct.signup(f.name.value.trim(), email, pw) : await acct.login(email, pw);
+    $('#authDialog').close();
+    f.reset();
+    await onSignedIn(user, true);
+    toast(authMode === 'signup' ? `Welcome, <b>${esc(user.name)}</b>! Your account is ready.` : `Signed in as <b>${esc(user.name)}</b>`, 'ok');
+  } catch (ex) { show(ex.message); }
+  btn.disabled = false;
+});
+
+async function onSignedIn(user, interactive) {
+  state.user = user;
+  let server = [];
+  try { server = (await acct.pull()).positions || []; } catch (e) { toast(esc(e.message), 'err'); }
+  state.positions = server;
+  const local = load();
+  if (interactive && local.length) {
+    const ids = new Set(server.map((p) => p.id));
+    const extra = local.filter((p) => !ids.has(p.id));
+    if (extra.length && confirm(`Move the ${extra.length} position${extra.length === 1 ? '' : 's'} saved in this browser into your account?`)) {
+      state.positions = server.concat(extra);
+      save([]);
+      savePositions();
+    }
+  }
+  setSync('saved');
+  renderPortfolio();
+  renderChartPositions();
+  resolvePending();
+}
+
+$('#accountBtn').addEventListener('click', () => {
+  const u = state.user;
+  if (!u) return openAuth('login');
+  $('#accAvatarBig').textContent = u.name.trim()[0]?.toUpperCase() || '?';
+  $('#accName').textContent = u.name;
+  $('#accEmail').textContent = u.email;
+  const closed = state.positions.filter((p) => p.status === 'closed');
+  const rp = sum(closed.map((p) => realized(p, state.maxLev)));
+  $('#accStats').innerHTML = `<div><label>Open positions</label><span class="mono">${state.positions.length - closed.length}</span></div><div><label>Closed trades</label><span class="mono">${closed.length}</span></div><div><label>Realized PnL</label><span class="mono ${cls(rp)}">${fmtSigned(rp)}</span></div><div><label>Member since</label><span class="mono">${new Date(u.created * 1000).toLocaleDateString()}</span></div>`;
+  $('#accSync').textContent = 'Your positions sync automatically to this account.';
+  $('#accountDialog').showModal();
+});
+$('#btnLogout').addEventListener('click', async () => {
+  try { await acct.logout(); } catch {}
+  $('#accountDialog').close();
+  state.user = null;
+  state.positions = load();
+  updateAccountUI();
+  renderPortfolio();
+  renderChartPositions();
+  toast('Signed out.');
+});
+
+async function initAccount() {
+  try {
+    const u = await acct.me();
+    if (u) await onSignedIn(u, false);
+  } catch { /* API not available (e.g. opened as a plain static site) — guest mode */ }
+  updateAccountUI();
+  resolvePending();
+}
 
 /* ------------------------------------------------------------------ */
 /* Boot                                                                */
@@ -971,6 +1209,7 @@ resetForm();
 setType('spot');
 renderPortfolio();
 loadData();
+initAccount();
 loadCtx();
 loadDayRange();
 setInterval(loadCtx, 30000);

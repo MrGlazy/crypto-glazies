@@ -46,7 +46,33 @@ export function pnlAt(p, price, maxLev) {
 
 export function realized(p, maxLev) {
   if (p.status !== 'closed') return 0;
+  if (Number.isFinite(p.realizedPnl)) return p.realizedPnl; // exact figure from the exchange
   return pnlAt(p, +p.exit, maxLev).pnl;
+}
+
+/** Capital put into a trade: margin for perps, cost for spot. */
+export function capitalOf(p, maxLev) {
+  if (p.fills?.length) return p.fills.reduce((a, f) => a + +f.usd, 0);
+  const k = calcPosition(p, maxLev);
+  return p.type === 'spot' ? k.notional : k.margin;
+}
+
+/**
+ * Imported trades carry fills [{time, usd, entry}] where usd = margin put in.
+ * Once every fill has a market price, derive size, average entry and exit.
+ */
+export function finalizeFromFills(p) {
+  const lev = p.type === 'spot' ? 1 : Math.max(1, +p.leverage || 1);
+  let size = 0, notional = 0;
+  for (const f of p.fills) { const n = +f.usd * lev; notional += n; size += n / f.entry; }
+  p.size = size;
+  p.entry = notional / size;
+  p.time = Math.min(...p.fills.map((f) => f.time));
+  if (p.status === 'closed' && Number.isFinite(p.realizedPnl)) {
+    p.exit = p.entry + (p.type === 'short' ? -1 : 1) * p.realizedPnl / size;
+  }
+  delete p.needsPrice;
+  return p;
 }
 
 export function load() {

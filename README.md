@@ -11,7 +11,16 @@ A static website (HTML/CSS/JS, no server needed) that:
 - **Forecast**: an ensemble of 8 signals (trend, long trend, MACD, RSI, regression slope, rate of change, Bollinger position, volume pressure) → bullish/bearish verdict, probability, projected path with 68% / 95% volatility cone, and a back-tested hit rate.
 - Price alert lines (browser notifications), near-liquidation warnings, "what if BTC = X" scenario, closed-trade history with realized PnL, JSON/CSV export and import, light/dark theme, mobile layout.
 
-Positions are stored in the browser's localStorage — use **Export** to back them up or move them to another device.
+### Accounts
+Anyone can **create an account** (email + password). Signed-in users' positions are stored on the server and sync across devices; guests keep positions in the browser. A **Stats** tab shows win rate, profit factor, average win/loss, best/worst trade, hold time, streak, a cumulative PnL curve and a monthly breakdown.
+
+The account API is plain PHP 8.1+ with SQLite (`api/`). The database lives in a private folder **outside** the website (`../../glazies-crypto-data/`, next to `public_html`), so deploys never touch it. To use MySQL instead, create `api/config.local.php` on the server:
+
+```php
+<?php return ['dsn' => 'mysql:host=localhost;dbname=DBNAME;charset=utf8mb4', 'user' => 'DBUSER', 'pass' => 'DBPASS'];
+```
+
+Passwords are hashed with `password_hash`, sessions are HttpOnly cookies, and login attempts are rate-limited.
 
 ## Deploy
 

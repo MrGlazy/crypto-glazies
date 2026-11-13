@@ -1,0 +1,5 @@
+# Only the two endpoints are reachable; helpers and local config are private.
+<FilesMatch "^(_bootstrap|config\.local)\.php$">
+  Require all denied
+</FilesMatch>
+Options -Indexes
