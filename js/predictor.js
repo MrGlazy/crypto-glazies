@@ -37,6 +37,8 @@ async function run(kind, candles, hKey, opts, onProgress) {
         const id = ++seq;
         pending.set(id, { resolve, reject, onProgress });
         worker.postMessage({ id, kind, candles, hKey, opts });
+        // never leave the cards spinning forever
+        setTimeout(() => { if (pending.delete(id)) reject(new Error('took too long — press Refresh to try again')); }, kind === 'predict' ? 60e3 : 180e3);
       });
     } catch (e) { if (worker) throw e; /* worker died → fall through */ }
   }
@@ -115,14 +117,56 @@ export function initPredictor({ getSource, getPrice, themeOpts, localization, cs
       <div class="ai-why"><div class="mini-head">What the model is looking at</div>
         <ul>${p.drivers.map((d) => `<li><span>${d.label}</span><span class="tag ${d.value > 0 ? 'long' : 'short'}">${d.value > 0 ? 'pushes up' : 'pushes down'}</span></li>`).join('')}</ul>
       </div>
-      <div class="muted tiny">Trained on ${NF0.format(p.trainedOn)} past ${H.interval} candles (${day(p.from)} – ${day(p.to)}).</div>`;
+      <div class="muted tiny">${p.where === 'nas' ? 'Computed on your NAS · ' : ''}Trained on ${NF0.format(p.trainedOn)} past ${H.interval} candles (${day(p.from)} – ${day(p.to)}).</div>`;
+  }
+
+  async function fromNas() {
+    try {
+      const r = await fetch('api/predictions.php', { headers: { 'X-Glazies': '1' }, cache: 'no-store' });
+      const d = (await r.json())?.data;
+      if (!d?.horizons || Date.now() - d.generated > 20 * 60e3) return null; // NAS offline → stale
+      return d;
+    } catch { return null; }
+  }
+  // NAS prices were computed a few minutes ago: shift them to the live price
+  function reanchor(p, live, candles) {
+    const k = live && p.price ? live / p.price : 1;
+    return {
+      ...p, price: p.price * k, expected: p.expected * k, r68: p.r68.map((v) => v * k), r95: p.r95.map((v) => v * k),
+      where: 'nas', totalCandles: candles,
+    };
+  }
+  // Track record for the chosen model, from the NAS backtest's per-model accuracies
+  function btFor(b, model, H) {
+    if (!b) return false;
+    const acc = b.accBy[model] ?? b.acc;
+    const base = Math.max(b.accBy.alwaysUp, 1 - b.accBy.alwaysUp);
+    const z = (acc - base) / Math.sqrt(0.25 / Math.max(1, b.n / H.h));
+    return { ...b, acc, zScore: z, significant: z > 2 };
   }
 
   async function refresh(force = false) {
     if (ui.busy || (!force && ui.loaded)) return;
     ui.busy = true; ui.loaded = true;
-    $('#aiCards').innerHTML = Object.values(HORIZONS).map(skeleton).join('');
+    if (!$('#aiCards .ai-pred')) $('#aiCards').innerHTML = Object.values(HORIZONS).map(skeleton).join('');
     $('#aiUpdated').textContent = 'updating…';
+
+    // 1) Results computed on the NAS (instant, trained on years of data)
+    const nas = await fromNas();
+    if (nas) {
+      for (const H of Object.values(HORIZONS)) {
+        const h = nas.horizons[H.key];
+        if (!h?.preds?.[ui.model]) { renderCard(H, null, null, 'no NAS result for this horizon'); continue; }
+        renderCard(H, reanchor(h.preds[ui.model], getPrice(), h.candles), btFor(h.backtest, ui.model, H));
+      }
+      const mins = Math.max(0, Math.round((Date.now() - nas.generated) / 60e3));
+      $('#aiUpdated').textContent = `from your NAS · ${mins ? `${mins} min ago` : 'just now'}`;
+      ui.busy = false;
+      return;
+    }
+
+    // 2) Fallback: train right here in the browser
+    $('#aiCards').innerHTML = Object.values(HORIZONS).map(skeleton).join('');
     const source = getSource();
     for (const H of Object.values(HORIZONS)) {
       try {
