@@ -12,6 +12,8 @@ export const DEPTH = {
 const MODELS = ['ensemble', 'ridge', 'knn'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Every request in this module gets a hard 60 s timeout, so a stalled connection can never freeze the runner.
+const fetch = (url, opts = {}) => globalThis.fetch(url, { signal: AbortSignal.timeout(60e3), ...opts });
 const mapBN = (k) => ({ time: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] });
 const mapHL = (c) => ({ time: Math.floor(c.t / 1000), open: +c.o, high: +c.h, low: +c.l, close: +c.c, volume: +c.v });
 
