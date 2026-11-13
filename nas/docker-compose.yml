@@ -1,5 +1,6 @@
 # Glazies Crypto AI — runs the predictor on a NAS and uploads results to the website.
-# UGREEN NAS: Docker app → Project → Create → paste this, set UPLOAD_TOKEN, Deploy.
+# Start:  docker compose up -d          Stop:  docker compose stop   (or: docker stop glazies-ai)
+# Pause without stopping: AI Predictor card on the website → Pause (site owner only).
 # On every start it downloads the latest code from GitHub, so updates arrive automatically.
 services:
   glazies-ai:
@@ -15,8 +16,12 @@ services:
     command: >
       sh -c "apk add --no-cache git >/dev/null &&
              rm -rf /app && git clone --depth 1 https://github.com/MrGlazy/crypto-glazies.git /app &&
-             exec node /app/nas/runner.mjs"
-    deploy:
-      resources:
-        limits:
-          memory: 1g
+             exec nice -n 19 node /app/nas/runner.mjs"
+    # Keep the NAS responsive: at most 1 CPU core and 1 GB RAM, lowest priority
+    cpus: 1.0
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: 1m
+        max-file: "2"

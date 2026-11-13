@@ -93,6 +93,14 @@ export async function computeAll({ withBacktest = true, prev = null, log = () =>
   return out;
 }
 
+/** Pause switch set from the website (AI Predictor card → Pause). Unknown → treat as running. */
+export async function isPaused(siteUrl) {
+  try {
+    const r = await fetch(`${siteUrl.replace(/\/$/, '')}/api/predictions.php`, { headers: { 'X-Glazies': '1' } });
+    return !!(await r.json())?.control?.paused;
+  } catch { return false; }
+}
+
 export async function upload(siteUrl, token, payload) {
   const r = await fetch(`${siteUrl.replace(/\/$/, '')}/api/predictions.php`, {
     method: 'POST',

@@ -364,3 +364,4 @@ form#posForm { padding: 0 16px 16px; display: flex; flex-direction: column; gap:
   .stat .val { font-size: 15px; }
   .topbar { position: static; }
 }
+#aiPause.paused { color: var(--warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent); }

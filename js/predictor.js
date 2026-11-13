@@ -123,11 +123,42 @@ export function initPredictor({ getSource, getPrice, themeOpts, localization, cs
   async function fromNas() {
     try {
       const r = await fetch('api/predictions.php', { headers: { 'X-Glazies': '1' }, cache: 'no-store' });
-      const d = (await r.json())?.data;
-      if (!d?.horizons || Date.now() - d.generated > 20 * 60e3) return null; // NAS offline → stale
+      const j = await r.json();
+      ui.paused = !!j?.control?.paused;
+      ui.admin = !!j?.admin;
+      ui.hasNas = !!j?.data;
+      renderPause();
+      const d = j?.data;
+      if (ui.paused || !d?.horizons || Date.now() - d.generated > 20 * 60e3) return null; // paused / offline → stale
       return d;
     } catch { return null; }
   }
+  // Pause / resume the NAS (only shown to the site owner)
+  function renderPause() {
+    const b = $('#aiPause');
+    b.classList.toggle('hidden', !ui.admin || !ui.hasNas);
+    b.textContent = ui.paused ? '▶ Resume NAS' : '❚❚ Pause NAS';
+    b.title = ui.paused ? 'Let your NAS start calculating again' : 'Stop all calculations on your NAS until you resume';
+    b.classList.toggle('paused', ui.paused);
+  }
+  $('#aiPause').addEventListener('click', async () => {
+    const b = $('#aiPause');
+    b.disabled = true;
+    try {
+      const r = await fetch('api/predictions.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Glazies': '1' },
+        body: JSON.stringify({ action: ui.paused ? 'resume' : 'pause' }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || `Error ${r.status}`);
+      ui.paused = !!j.control.paused;
+      renderPause();
+      $('#aiUpdated').textContent = ui.paused ? 'NAS paused — it stops within a minute' : 'NAS resumed — new results within ~5 min';
+    } catch (e) {
+      $('#aiUpdated').textContent = `couldn't change NAS: ${e.message}`;
+    }
+    b.disabled = false;
+  });
   // NAS prices were computed a few minutes ago: shift them to the live price
   function reanchor(p, live, candles) {
     const k = live && p.price ? live / p.price : 1;
