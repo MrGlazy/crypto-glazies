@@ -99,7 +99,7 @@ a:hover { text-decoration: underline; }
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
-  grid-template-areas: "chart side" "port side" "ai ai";
+  grid-template-areas: "chart side" "port side" "ai side";
   gap: 16px;
   padding: 16px 20px;
   max-width: 1800px;
@@ -292,7 +292,7 @@ form#posForm { padding: 0 16px 16px; display: flex; flex-direction: column; gap:
 /* ---------- AI predictor ---------- */
 .badge.beta { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent2); font-family: var(--sans); text-transform: uppercase; vertical-align: 2px; margin-left: 4px; }
 .ai-pane { padding: 0 16px 16px; }
-.ai-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.ai-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
 .ai-pred { background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ai-pred.is-up { border-top: 3px solid var(--up); }
 .ai-pred.is-down { border-top: 3px solid var(--down); }
