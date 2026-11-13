@@ -326,10 +326,95 @@
       </div>
       <p class="footnote"><span id="storageNote">Positions are saved in this browser only — <a href="#" data-open-auth>create a free account</a> to keep them safe and use them on any device.</span> Liquidation prices use Hyperliquid's formula with maintenance margin = ½ of initial margin at max leverage; large positions in higher margin tiers liquidate earlier.</p>
     </section>
+
+    <!-- ===== AI Predictor ===== -->
+    <section class="card ai-card" id="aiCard">
+      <div class="card-head wrap">
+        <h2>AI Predictor <span class="badge beta">beta</span></h2>
+        <div class="seg small" id="aiTabs">
+          <button data-tab="predict" class="active">Predictions</button>
+          <button data-tab="backtest">Backtest</button>
+        </div>
+        <div class="tb-group right">
+          <span id="aiUpdated" class="muted small"></span>
+          <select id="aiModel" class="select sm" title="Which model makes the calls">
+            <option value="ensemble">Ensemble (both models)</option>
+            <option value="ridge">Ridge regression</option>
+            <option value="knn">Pattern matching</option>
+          </select>
+          <button class="btn sm ghost" id="aiRefresh" title="Retrain on the latest candles">Refresh</button>
+        </div>
+      </div>
+
+      <div id="aiPredict" class="ai-pane">
+        <div class="ai-cards" id="aiCards"></div>
+        <p class="disclaimer">Two machine-learning models retrained in your browser on up to 5,000 recent BTC candles: a ridge regression over 23 market features (momentum, trend, volatility, volume, time of day) and a pattern matcher that finds the most similar past setups and checks what happened next. "Track record" is how often the same model was right on data it hadn't seen. Crypto prices are close to random over short periods — no model is reliable. Not financial advice.</p>
+      </div>
+
+      <div id="aiBacktest" class="ai-pane hidden">
+        <form class="bt-controls" id="btForm">
+          <div class="bt-field"><label>Predict</label>
+            <div class="seg small" id="btHorizon">
+              <button type="button" data-h="1h">1 hour ahead</button>
+              <button type="button" data-h="1d" class="active">1 day ahead</button>
+              <button type="button" data-h="1w">1 week ahead</button>
+            </div>
+          </div>
+          <div class="bt-field"><label>Test on</label>
+            <select id="btTest" class="select sm">
+              <option value="0.2">last 20% of history</option>
+              <option value="0.4" selected>last 40% of history</option>
+              <option value="0.6">last 60% of history</option>
+            </select>
+          </div>
+          <div class="bt-field"><label>Trade only when</label>
+            <select id="btThr" class="select sm">
+              <option value="0" selected>always</option>
+              <option value="0.02">≥ 52% sure</option>
+              <option value="0.05">≥ 55% sure</option>
+              <option value="0.1">≥ 60% sure</option>
+            </select>
+          </div>
+          <div class="bt-field"><label>Fees per side</label>
+            <select id="btFee" class="select sm">
+              <option value="0">none</option>
+              <option value="1.5">0.015% (maker)</option>
+              <option value="4.5" selected>0.045% (taker)</option>
+            </select>
+          </div>
+          <button type="submit" class="btn primary sm" id="btRun">Run backtest</button>
+        </form>
+        <div class="bt-progress hidden" id="btProgress"><div></div></div>
+        <div class="bt-empty" id="btEmpty"><p>The backtest replays history: at every past candle the model is trained only on what was known <i>at that moment</i>, makes its call, and is then checked against what really happened. It also simulates a simple strategy — go long when it says up, short when it says down — against just holding BTC.</p></div>
+        <div id="btResult" class="hidden">
+          <div class="stats-grid" id="btStats"></div>
+          <p class="bt-verdict" id="btVerdict"></p>
+          <div class="stats-cols">
+            <div class="stats-chart-card">
+              <div class="mini-head">AI strategy vs buy &amp; hold (return %)</div>
+              <div id="btChart" class="pnl-chart"></div>
+            </div>
+            <div class="stats-month">
+              <div class="mini-head">Direction right — model vs simple baselines</div>
+              <table class="pos-table cmp-table"><tbody id="btCompare"></tbody></table>
+            </div>
+          </div>
+          <div class="stats-month">
+            <div class="mini-head">Latest test predictions</div>
+            <div class="table-wrap bt-recent">
+              <table class="pos-table">
+                <thead><tr><th>Made at</th><th class="num">Price then</th><th class="num">Predicted</th><th class="num">Actual</th><th class="num">Chance up</th><th class="num">Right?</th></tr></thead>
+                <tbody id="btRecent"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
-    <span>crypto.glazzy.site · v1.1</span>
+    <span>crypto.glazzy.site · v1.2</span>
     <span>Market data: <a href="https://hyperliquid.xyz" target="_blank" rel="noopener">Hyperliquid</a> / Binance public APIs</span>
     <span>Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a></span>
   </footer>

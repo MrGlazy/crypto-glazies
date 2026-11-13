@@ -3,6 +3,7 @@ import { sma, ema, bollinger, rsi, macd, vwap, heikinAshi } from './indicators.j
 import { forecast } from './forecast.js';
 import { calcPosition, pnlAt, realized, capitalOf, finalizeFromFills, load, save, uid, toCsv } from './positions.js';
 import * as acct from './account.js';
+import { initPredictor } from './predictor.js';
 
 const LC = window.LightweightCharts;
 const $ = (s, r = document) => r.querySelector(s);
@@ -45,6 +46,7 @@ const defaults = {
 let settings;
 try { settings = { ...defaults, ...JSON.parse(localStorage.getItem(SKEY) || '{}') }; } catch { settings = { ...defaults }; }
 const persist = () => { try { localStorage.setItem(SKEY, JSON.stringify(settings)); } catch {} };
+let predictor = null; // AI predictor card (set up at boot)
 
 const state = {
   coin: 'BTC', candles: [], ctx: null, maxLev: 40, lastPrice: null, dayHigh: null, dayLow: null,
@@ -920,7 +922,7 @@ $('#chartType').addEventListener('change', (e) => {
   settings.chartType = e.target.value; persist();
   buildPriceSeries(); priceSeries.setData(seriesData()); renderChartPositions();
 });
-$('#sourceSelect').addEventListener('change', (e) => { settings.source = e.target.value; persist(); loadData({ keepView: true }); loadDayRange(); });
+$('#sourceSelect').addEventListener('change', (e) => { settings.source = e.target.value; persist(); loadData({ keepView: true }); loadDayRange(); predictor?.sourceChanged(); });
 $('#indDropdown [data-dd-toggle]').addEventListener('click', (e) => { e.stopPropagation(); $('#indDropdown').classList.toggle('open'); });
 document.addEventListener('click', (e) => { if (!e.target.closest('#indDropdown')) $('#indDropdown').classList.remove('open'); });
 $$('#indDropdown input[data-ind]').forEach((i) => i.addEventListener('change', () => {
@@ -959,6 +961,7 @@ $('#themeToggle').addEventListener('click', () => {
 function applyTheme() {
   const o = themeOpts();
   for (const ch of [main, subs.rsi.chart, subs.macd.chart, pnlChart]) ch?.applyOptions(o);
+  predictor?.applyTheme();
   document.querySelector('meta[name="theme-color"]').content = css('--bg');
   buildPriceSeries();
   if (state.candles.length) { priceSeries.setData(seriesData()); renderIndicators(); renderChartPositions(); }
@@ -1213,6 +1216,9 @@ setType('spot');
 renderPortfolio();
 loadData();
 initAccount();
+try {
+  predictor = initPredictor({ getSource: () => settings.source, getPrice: () => state.lastPrice, themeOpts, localization, css, LC });
+} catch (e) { console.error('AI predictor failed to start', e); }
 loadCtx();
 loadDayRange();
 setInterval(loadCtx, 30000);
