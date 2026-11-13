@@ -765,6 +765,7 @@ function readForm() {
     type: state.formType, venue: form.venue.value, time: fromLocalInput(form.time.value), entry, size,
     leverage: state.formType === 'spot' ? 1 : +form.leverage.value, marginMode: state.marginMode,
     accountValue: parseFloat(form.accountValue.value) || null,
+    liqOverride: state.formType === 'spot' ? null : parseFloat(form.liqOverride.value) || null,
     tp: parseFloat(form.tp.value) || null, sl: parseFloat(form.sl.value) || null, notes: form.notes.value.trim(),
   };
 }
@@ -793,7 +794,8 @@ function updateCalc() {
   if (p.type !== 'spot') {
     if (k.liq) {
       const d = Math.abs(p.entry - k.liq) / p.entry;
-      liqRow = `<div class="full"><label>Liquidation price (Hyperliquid)</label><span class="liq down">${fmtUsd(k.liq, 1)} · ${(d * 100).toFixed(2)}% from entry</span></div>`;
+      liqRow = `<div class="full"><label>Liquidation price ${k.liqFromExchange ? '(from exchange)' : '(Hyperliquid formula)'}</label><span class="liq down">${fmtUsd(k.liq, 1)} · ${(d * 100).toFixed(2)}% from entry</span></div>`;
+      if (k.liqFromExchange && k.liqCalc) liqRow += `<div class="full muted">Formula estimate: ${fmtUsd(k.liqCalc, 1)} — the exchange figure also counts fees and funding paid.</div>`;
     } else liqRow = '<div class="full"><label>Liquidation price</label><span class="liq up">None — collateral covers the position</span></div>';
     if (p.marginMode === 'cross' && !p.accountValue) liqRow += '<div class="full muted">Cross: add your account value for a better estimate (using isolated math).</div>';
   }
@@ -822,6 +824,7 @@ function editPosition(p) {
   form.amountUnit.value = 'coin';
   form.leverage.value = p.leverage || 1;
   form.accountValue.value = p.accountValue || '';
+  form.liqOverride.value = p.liqOverride || '';
   form.tp.value = p.tp || '';
   form.sl.value = p.sl || '';
   form.notes.value = p.notes || '';

@@ -26,8 +26,10 @@ export function calcPosition(p, maxLev = 40) {
   const avail = collateral - maint;
   let liq = entry - (side * avail) / size / (1 - l * side);
   if (!(liq > 0)) liq = null; // long that cannot be liquidated
+  const liqCalc = liq;
+  if (+p.liqOverride > 0) liq = +p.liqOverride; // exact value copied from the exchange
   return {
-    notional, margin: initMargin, maint, liq, l, side, lev, collateral,
+    notional, margin: initMargin, maint, liq, liqCalc, liqFromExchange: +p.liqOverride > 0, l, side, lev, collateral,
     fee: notional * HL_FEES.taker,
     mmRate: l,
   };
@@ -62,6 +64,11 @@ export function capitalOf(p, maxLev) {
  * Once every fill has a market price, derive size, average entry and exit.
  */
 export function finalizeFromFills(p) {
+  if (p.lockEntry && +p.entry > 0 && +p.size > 0) { // exact entry/size known from the exchange
+    p.time = Math.min(...p.fills.map((f) => f.time));
+    delete p.needsPrice;
+    return p;
+  }
   const lev = p.type === 'spot' ? 1 : Math.max(1, +p.leverage || 1);
   let size = 0, notional = 0;
   for (const f of p.fills) { const n = +f.usd * lev; notional += n; size += n / f.entry; }

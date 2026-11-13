@@ -253,6 +253,10 @@
                 </div>
               </label>
             </div>
+            <label class="field">
+              <span>Liquidation price from exchange <small class="muted">— optional, overrides the estimate</small></span>
+              <input type="number" step="any" min="0" name="liqOverride" class="input mono" placeholder="e.g. as shown in Hyperliquid" />
+            </label>
             <label class="field cross-only hidden">
               <span>Cross account value (USD) <small class="muted">— optional, improves cross liq estimate</small></span>
               <input type="number" step="any" min="0" name="accountValue" class="input mono" placeholder="Total equity in your Hyperliquid account" />
