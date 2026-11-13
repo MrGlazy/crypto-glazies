@@ -1,6 +1,6 @@
 # Glazies Crypto — BTC position tracker
 
-Live site: **https://crypto.glazies.site**
+Live site: **https://crypto.glazzy.site**
 
 A static website (HTML/CSS/JS, no server needed) that:
 
@@ -29,7 +29,7 @@ Set these in GitHub → Settings → Secrets and variables → Actions:
 
 | Name | Type | Value |
 |---|---|---|
-| `FTP_SERVER` | secret | FTP host from hPanel → Files → FTP Accounts (e.g. `ftp.glazies.site`) |
+| `FTP_SERVER` | secret | FTP host from hPanel → Files → FTP Accounts (e.g. `ftp.glazzy.site`) |
 | `FTP_USERNAME` | secret | FTP username |
 | `FTP_PASSWORD` | secret | FTP password |
 | `FTP_SERVER_DIR` | variable (optional) | Subdomain folder, default `public_html/crypto/` |
