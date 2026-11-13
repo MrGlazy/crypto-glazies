@@ -6,7 +6,14 @@
 //   RESTART_HOURS  exit after this long so Docker restarts with the latest code (default 12)
 // Pausing: the site owner's Pause button (AI Predictor card) stops all calculations; while paused
 // the runner only checks once a minute whether it has been resumed.
+import net from 'node:net';
+import dns from 'node:dns';
 import { computeAll, upload, isPaused } from './compute.mjs';
+
+// Some home networks take several seconds to open a connection (and have no IPv6 route);
+// Node's default 250 ms per-address attempt then fails with ETIMEDOUT. Prefer IPv4 and wait longer.
+dns.setDefaultResultOrder('ipv4first');
+net.setDefaultAutoSelectFamilyAttemptTimeout(10000);
 
 const SITE = process.env.SITE_URL || 'https://crypto.glazzy.site';
 const TOKEN = process.env.UPLOAD_TOKEN || '';
