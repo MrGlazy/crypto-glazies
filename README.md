@@ -1,0 +1,36 @@
+# Glazies Crypto — BTC position tracker
+
+Live site: **https://crypto.glazies.site**
+
+A static website (HTML/CSS/JS, no server needed) that:
+
+- Shows a live, detailed BTC chart from **Hyperliquid** (falls back to Binance): 1m → 1W timeframes, candles / Heikin Ashi / bars / line / area, log scale, screenshot, fullscreen.
+- Indicators: Volume, EMA 20/50/200, SMA 100, Bollinger Bands, rolling VWAP, RSI and MACD panels.
+- Lets you log **spot buys** and **Hyperliquid long/short** positions (where, how much, when, price, leverage, isolated/cross, TP/SL, notes) — plotted on the chart as markers plus entry / TP / SL lines.
+- Calculates the **liquidation price** with Hyperliquid's formula (maintenance margin = ½ of initial margin at max leverage, 40x for BTC), and shows margin, fees, hourly funding, live PnL / ROE and distance to liquidation.
+- **Forecast**: an ensemble of 8 signals (trend, long trend, MACD, RSI, regression slope, rate of change, Bollinger position, volume pressure) → bullish/bearish verdict, probability, projected path with 68% / 95% volatility cone, and a back-tested hit rate.
+- Price alert lines (browser notifications), near-liquidation warnings, "what if BTC = X" scenario, closed-trade history with realized PnL, JSON/CSV export and import, light/dark theme, mobile layout.
+
+Positions are stored in the browser's localStorage — use **Export** to back them up or move them to another device.
+
+## Deploy
+
+Every push to `main` uploads the site to Hostinger via FTP (`.github/workflows/deploy.yml`).
+Set these in GitHub → Settings → Secrets and variables → Actions:
+
+| Name | Type | Value |
+|---|---|---|
+| `FTP_SERVER` | secret | FTP host from hPanel → Files → FTP Accounts (e.g. `ftp.glazies.site`) |
+| `FTP_USERNAME` | secret | FTP username |
+| `FTP_PASSWORD` | secret | FTP password |
+| `FTP_SERVER_DIR` | variable (optional) | Subdomain folder, default `public_html/crypto/` |
+
+## Run locally
+
+```bash
+python3 -m http.server 8000
+```
+
+Then open http://localhost:8000.
+
+Charts: TradingView Lightweight Charts™ (Apache-2.0), vendored in `vendor/`.

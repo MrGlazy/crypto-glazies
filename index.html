@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Glazies Crypto · BTC Tracker</title>
+  <meta name="description" content="Track your Bitcoin buys and Hyperliquid leveraged positions on a live chart, with liquidation prices and a price forecast." />
+  <meta name="theme-color" content="#0b0e14" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- ===== Top bar ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <img src="assets/favicon.svg" alt="" width="28" height="28" />
+      <span>Glazies<b>Crypto</b></span>
+    </div>
+
+    <div class="asset-select" role="tablist" aria-label="Asset">
+      <button class="asset active" data-coin="BTC" role="tab" aria-selected="true">
+        <span class="coin-dot btc">₿</span> BTC-USD
+      </button>
+      <button class="asset" disabled title="Coming soon">ETH <small>soon</small></button>
+      <button class="asset" disabled title="Coming soon">SOL <small>soon</small></button>
+    </div>
+
+    <div class="ticker">
+      <div class="tick-main">
+        <span id="livePrice" class="mono big">—</span>
+        <span id="liveChange" class="chip">—</span>
+      </div>
+      <div class="tick-stats">
+        <div><label>Mark</label><span id="statMark" class="mono">—</span></div>
+        <div><label>Oracle</label><span id="statOracle" class="mono">—</span></div>
+        <div><label>24h High</label><span id="statHigh" class="mono">—</span></div>
+        <div><label>24h Low</label><span id="statLow" class="mono">—</span></div>
+        <div><label>24h Vol</label><span id="statVol" class="mono">—</span></div>
+        <div><label>Open Int.</label><span id="statOI" class="mono">—</span></div>
+        <div><label>Funding</label><span id="statFunding" class="mono">—</span></div>
+      </div>
+    </div>
+
+    <div class="top-actions">
+      <span id="connStatus" class="conn" title="Live data connection"><i></i><span>Connecting</span></span>
+      <select id="sourceSelect" class="select sm" title="Market data source">
+        <option value="hyperliquid">Hyperliquid</option>
+        <option value="binance">Binance</option>
+      </select>
+      <button id="themeToggle" class="icon-btn" title="Toggle light / dark">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ===== Chart ===== -->
+    <section class="card chart-card" id="chartCard">
+      <div class="toolbar">
+        <div class="seg" id="tfSeg" aria-label="Timeframe">
+          <button data-tf="1m">1m</button><button data-tf="5m">5m</button><button data-tf="15m">15m</button>
+          <button data-tf="1h" class="active">1H</button><button data-tf="4h">4H</button>
+          <button data-tf="1d">1D</button><button data-tf="1w">1W</button>
+        </div>
+
+        <select id="chartType" class="select sm" title="Chart type">
+          <option value="candles">Candles</option>
+          <option value="heikin">Heikin Ashi</option>
+          <option value="bars">OHLC Bars</option>
+          <option value="line">Line</option>
+          <option value="area">Area</option>
+        </select>
+
+        <div class="dropdown" id="indDropdown">
+          <button class="btn sm ghost" data-dd-toggle>
+            <svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M3 17h2v4H3v-4Zm4-6h2v10H7V11Zm4 3h2v7h-2v-7Zm4-9h2v16h-2V5Zm4 6h2v10h-2V11Z"/></svg>
+            Indicators <span id="indCount" class="badge">0</span>
+          </button>
+          <div class="dd-menu">
+            <div class="dd-title">Overlays</div>
+            <label><input type="checkbox" data-ind="volume" /> Volume</label>
+            <label><input type="checkbox" data-ind="ema20" /> <i class="sw" style="--c:#f5c542"></i> EMA 20</label>
+            <label><input type="checkbox" data-ind="ema50" /> <i class="sw" style="--c:#4da3ff"></i> EMA 50</label>
+            <label><input type="checkbox" data-ind="ema200" /> <i class="sw" style="--c:#c77dff"></i> EMA 200</label>
+            <label><input type="checkbox" data-ind="sma100" /> <i class="sw" style="--c:#ff8c42"></i> SMA 100</label>
+            <label><input type="checkbox" data-ind="bb" /> <i class="sw" style="--c:#38bdf8"></i> Bollinger (20, 2)</label>
+            <label><input type="checkbox" data-ind="vwap" /> <i class="sw" style="--c:#f472b6"></i> VWAP (rolling)</label>
+            <div class="dd-title">Panels</div>
+            <label><input type="checkbox" data-ind="rsi" /> RSI (14)</label>
+            <label><input type="checkbox" data-ind="macd" /> MACD (12, 26, 9)</label>
+          </div>
+        </div>
+
+        <div class="tb-group">
+          <button class="btn sm ghost toggle" id="tglForecast" title="Show forecast">
+            <svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M3 17.5 9 11.5l4 4L20.5 8l1.5 1.5-9 9-4-4-4.5 4.5L3 17.5Z"/></svg>
+            Forecast
+          </button>
+          <button class="btn sm ghost toggle" id="tglPositions" title="Show positions on chart">Positions</button>
+          <button class="btn sm ghost toggle" id="tglLiq" title="Show liquidation lines">Liq lines</button>
+        </div>
+
+        <div class="tb-group right">
+          <button class="icon-btn sm" id="toolLine" title="Draw price line / alert (click chart)">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M2 11h20v2H2z"/><circle cx="18" cy="12" r="3" fill="currentColor"/></svg>
+          </button>
+          <button class="icon-btn sm" id="clearLines" title="Clear price lines">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-3 6h12l-1 12H7L6 9Z"/></svg>
+          </button>
+          <button class="icon-btn sm toggle" id="tglLog" title="Logarithmic scale">log</button>
+          <button class="icon-btn sm" id="btnFit" title="Fit all data">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M4 4h6v2H6v4H4V4Zm10 0h6v6h-2V6h-4V4ZM4 14h2v4h4v2H4v-6Zm14 0h2v6h-6v-2h4v-4Z"/></svg>
+          </button>
+          <button class="icon-btn sm" id="btnLive" title="Scroll to live">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 6l6 6-6 6V6Zm7 0l6 6-6 6V6Z"/></svg>
+          </button>
+          <button class="icon-btn sm" id="btnShot" title="Download screenshot">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M9 4 7.2 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.2L15 4H9Zm3 5a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg>
+          </button>
+          <button class="icon-btn sm" id="btnFull" title="Fullscreen">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 3h7v2H5v5H3V3Zm11 0h7v7h-2V5h-5V3ZM3 14h2v5h5v2H3v-7Zm16 0h2v7h-7v-2h5v-5Z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="chart-wrap">
+        <div id="legend" class="legend mono"></div>
+        <div id="pickHint" class="pick-hint hidden">Click the chart to set the entry price &amp; time · <kbd>Esc</kbd> to cancel</div>
+        <div id="mainChart" class="chart-main"></div>
+        <div id="loading" class="loading"><div class="spinner"></div><span>Loading market data…</span></div>
+      </div>
+      <div id="rsiPane" class="sub-pane hidden"><span class="pane-label">RSI 14 <b id="rsiVal" class="mono"></b></span><div class="sub-chart"></div></div>
+      <div id="macdPane" class="sub-pane hidden"><span class="pane-label">MACD 12 26 9 <b id="macdVal" class="mono"></b></span><div class="sub-chart"></div></div>
+    </section>
+
+    <!-- ===== Sidebar ===== -->
+    <aside class="sidebar">
+      <!-- Forecast -->
+      <section class="card forecast-card">
+        <div class="card-head">
+          <h2>Forecast</h2>
+          <select id="fcHorizon" class="select sm" title="Forecast horizon (bars)">
+            <option value="12">12 bars</option>
+            <option value="24" selected>24 bars</option>
+            <option value="48">48 bars</option>
+            <option value="96">96 bars</option>
+          </select>
+        </div>
+        <div class="fc-body">
+          <div class="gauge">
+            <svg viewBox="0 0 200 116" class="gauge-svg">
+              <defs>
+                <linearGradient id="gg" x1="0" x2="1">
+                  <stop offset="0" stop-color="var(--down)" />
+                  <stop offset=".5" stop-color="var(--muted)" />
+                  <stop offset="1" stop-color="var(--up)" />
+                </linearGradient>
+              </defs>
+              <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="var(--line)" stroke-width="14" stroke-linecap="round" />
+              <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="url(#gg)" stroke-width="14" stroke-linecap="round" opacity=".9" />
+              <g id="gaugeNeedle" style="transform-origin:100px 100px; transition: transform .6s cubic-bezier(.2,.8,.2,1)">
+                <line x1="100" y1="100" x2="100" y2="34" stroke="var(--text)" stroke-width="3" stroke-linecap="round" />
+              </g>
+              <circle cx="100" cy="100" r="6" fill="var(--text)" />
+            </svg>
+            <div class="gauge-read">
+              <div id="fcVerdict" class="verdict">—</div>
+              <div id="fcProb" class="muted small">probability of going up: —</div>
+            </div>
+          </div>
+          <div class="fc-targets">
+            <div><label>Expected</label><span id="fcTarget" class="mono">—</span></div>
+            <div><label>68% range</label><span id="fcRange1" class="mono">—</span></div>
+            <div><label>95% range</label><span id="fcRange2" class="mono">—</span></div>
+            <div><label>Backtest hit-rate</label><span id="fcHit" class="mono">—</span></div>
+          </div>
+          <ul id="fcSignals" class="signals"></ul>
+          <p class="disclaimer">A statistical model (trend, momentum, mean reversion and volatility), not financial advice. Markets can move in ways no model predicts.</p>
+        </div>
+      </section>
+
+      <!-- Add position -->
+      <section class="card form-card" id="formCard">
+        <div class="card-head">
+          <h2 id="formTitle">Add position</h2>
+          <button class="btn sm ghost" id="btnPick" title="Pick entry from chart">
+            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M11 2h2v4h-2V2Zm0 16h2v4h-2v-4ZM2 11h4v2H2v-2Zm16 0h4v2h-4v-2ZM12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg>
+            Pick on chart
+          </button>
+        </div>
+        <form id="posForm" autocomplete="off">
+          <input type="hidden" name="id" />
+          <div class="seg type-seg" id="typeSeg">
+            <button type="button" data-type="spot" class="active">Spot buy</button>
+            <button type="button" data-type="long">Long</button>
+            <button type="button" data-type="short">Short</button>
+          </div>
+
+          <div class="grid2">
+            <label class="field">
+              <span>Where (exchange)</span>
+              <select name="venue" class="select">
+                <option>Hyperliquid</option><option>Binance</option><option>Coinbase</option>
+                <option>Kraken</option><option>Bybit</option><option>OKX</option><option>Other</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Amount</span>
+              <div class="inline">
+                <input type="number" step="any" min="0" name="amount" class="input mono" placeholder="0.25" required />
+                <select name="amountUnit" class="select unit">
+                  <option value="coin">BTC</option>
+                  <option value="usd">USD</option>
+                </select>
+              </div>
+            </label>
+          </div>
+          <label class="field">
+            <span>Date &amp; time bought</span>
+            <div class="inline">
+              <input type="datetime-local" name="time" class="input" required />
+              <button type="button" class="btn sm ghost" id="btnNow" title="Set to now (and current price)">Now</button>
+            </div>
+          </label>
+          <label class="field">
+            <span>Entry price (USD)</span>
+            <div class="inline">
+              <input type="number" step="any" min="0" name="entry" class="input mono" placeholder="e.g. 98250" required />
+              <button type="button" class="btn sm ghost" id="btnHistPx" title="Look up the market price at the chosen time">Price at that time</button>
+            </div>
+          </label>
+
+          <div class="lev-block" id="levBlock">
+            <div class="grid2">
+              <label class="field">
+                <span>Leverage <b id="levLabel" class="mono">10x</b> <small class="muted">max <span id="maxLevLabel">40</span>x</small></span>
+                <input type="range" name="leverage" min="1" max="40" step="1" value="10" class="range" />
+              </label>
+              <label class="field">
+                <span>Margin mode</span>
+                <div class="seg small" id="marginSeg">
+                  <button type="button" data-mode="isolated" class="active">Isolated</button>
+                  <button type="button" data-mode="cross">Cross</button>
+                </div>
+              </label>
+            </div>
+            <label class="field cross-only hidden">
+              <span>Cross account value (USD) <small class="muted">— optional, improves cross liq estimate</small></span>
+              <input type="number" step="any" min="0" name="accountValue" class="input mono" placeholder="Total equity in your Hyperliquid account" />
+            </label>
+          </div>
+
+          <div class="grid2">
+            <label class="field"><span>Take profit <small class="muted">optional</small></span><input type="number" step="any" min="0" name="tp" class="input mono" /></label>
+            <label class="field"><span>Stop loss <small class="muted">optional</small></span><input type="number" step="any" min="0" name="sl" class="input mono" /></label>
+          </div>
+          <label class="field"><span>Notes</span><input type="text" name="notes" class="input" maxlength="140" placeholder="Why did I take this trade?" /></label>
+
+          <div class="calc" id="calcBox"></div>
+
+          <div class="form-actions">
+            <button type="button" class="btn ghost" id="btnReset">Clear</button>
+            <button type="submit" class="btn primary" id="btnSubmit">Add to chart</button>
+          </div>
+        </form>
+      </section>
+    </aside>
+
+    <!-- ===== Portfolio ===== -->
+    <section class="card portfolio">
+      <div class="card-head wrap">
+        <h2>Portfolio</h2>
+        <div class="seg small" id="posTabs">
+          <button data-tab="open" class="active">Open <span id="cntOpen" class="badge">0</span></button>
+          <button data-tab="closed">Closed <span id="cntClosed" class="badge">0</span></button>
+        </div>
+        <div class="tb-group right">
+          <label class="scenario" title="See what your portfolio is worth at a hypothetical BTC price">
+            What if BTC =
+            <input type="number" id="scenarioPx" class="input xs mono" placeholder="price" step="any" />
+          </label>
+          <button class="btn sm ghost" id="btnExport">Export</button>
+          <button class="btn sm ghost" id="btnCsv">CSV</button>
+          <label class="btn sm ghost file-btn">Import<input type="file" id="importFile" accept="application/json" /></label>
+        </div>
+      </div>
+
+      <div class="summary" id="summary"></div>
+      <div class="table-wrap">
+        <table class="pos-table" id="posTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+        <div id="emptyState" class="empty">
+          <svg viewBox="0 0 24 24" width="36" height="36"><path fill="currentColor" d="M3 3h2v16h16v2H3V3Zm4 10 4-4 3 3 5-5 1.4 1.4L14 14.8l-3-3-2.6 2.6L7 13Z"/></svg>
+          <p>No positions yet. Add your first BTC buy or Hyperliquid trade with the form, or use <b>Pick on chart</b>.</p>
+        </div>
+      </div>
+      <p class="footnote">Positions are saved in this browser only (use Export to back up or move them). Liquidation prices use Hyperliquid's formula with maintenance margin = ½ of initial margin at max leverage; large positions in higher margin tiers liquidate earlier.</p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>crypto.glazies.site</span>
+    <span>Market data: <a href="https://hyperliquid.xyz" target="_blank" rel="noopener">Hyperliquid</a> / Binance public APIs</span>
+    <span>Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a></span>
+  </footer>
+
+  <!-- Close / edit modal -->
+  <dialog id="closeDialog" class="dialog">
+    <form method="dialog" id="closeForm">
+      <h3>Close position</h3>
+      <p class="muted small" id="closeInfo"></p>
+      <label class="field"><span>Exit price (USD)</span><input type="number" step="any" min="0" name="exit" class="input mono" required /></label>
+      <label class="field"><span>Exit time</span><input type="datetime-local" name="exitTime" class="input" required /></label>
+      <div class="calc" id="closeCalc"></div>
+      <div class="form-actions">
+        <button value="cancel" class="btn ghost" formnovalidate>Cancel</button>
+        <button value="ok" class="btn primary">Close position</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="vendor/lightweight-charts.standalone.production.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
